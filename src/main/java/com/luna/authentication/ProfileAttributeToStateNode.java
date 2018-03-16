@@ -20,12 +20,7 @@ package com.luna.authentication;
 
 import com.google.inject.assistedinject.Assisted;
 import com.iplanet.sso.SSOException;
-import com.sun.identity.idm.AMIdentity;
-import com.sun.identity.idm.AMIdentityRepository;
-import com.sun.identity.idm.IdRepoException;
-import com.sun.identity.idm.IdSearchControl;
-import com.sun.identity.idm.IdSearchResults;
-import com.sun.identity.idm.IdType;
+import com.sun.identity.idm.*;
 import com.sun.identity.sm.RequiredValueValidator;
 
 import org.forgerock.json.JsonValue;
@@ -40,6 +35,7 @@ import static org.forgerock.openam.auth.node.api.SharedStateConstants.REALM;
 import static org.forgerock.openam.auth.node.api.SharedStateConstants.USERNAME;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -79,7 +75,7 @@ public class ProfileAttributeToStateNode extends SingleOutcomeNode {
 
     @Override
     public Action process(TreeContext context) throws NodeProcessException {
-        verifyUsernameAndRealm(context);
+//        verifyUsernameAndRealm(context);
 
         JsonValue sharedState = context.sharedState.copy();
 
@@ -124,8 +120,15 @@ public class ProfileAttributeToStateNode extends SingleOutcomeNode {
     }
 
     private Set getValueForKeyFromProfile(String key, TreeContext context) throws IdRepoException, SSOException {
-        AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(),
-                context.sharedState.get(REALM).asString());
+//        AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(),
+//                context.sharedState.get(REALM).asString());
+
+        final String INPUT = "mail";
+        Set<String> userAttributes = new HashSet<>();
+        userAttributes.add("uid");
+        userAttributes.add("mail");
+        AMIdentity user = IdUtils.getIdentity(context.sharedState.get(INPUT).asString(), context.sharedState.get(REALM).asString(), userAttributes);
+
         return user.getAttribute(key);
     }
 
