@@ -16,7 +16,7 @@
  *
  */
 
-package com.luna.authentication;
+package org.forgerock.am;
 
 import static java.util.Arrays.asList;
 

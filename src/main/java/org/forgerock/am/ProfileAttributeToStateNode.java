@@ -16,7 +16,7 @@
  *
  */
 
-package com.luna.authentication;
+package org.forgerock.am;
 
 import com.google.inject.assistedinject.Assisted;
 import com.iplanet.sso.SSOException;
