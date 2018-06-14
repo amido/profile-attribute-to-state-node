@@ -14,45 +14,74 @@
  *
  * Copyright 2018 David Luna.
  *
+ *  Chandra Dhulipala - June 2018 - Modified the node type and customised for displaying messages
  */
 
 package org.forgerock.am;
 
 import com.google.inject.assistedinject.Assisted;
 import com.iplanet.sso.SSOException;
-import com.sun.identity.idm.*;
+import com.sun.identity.idm.AMIdentity;
+import com.sun.identity.idm.AMIdentityRepository;
+import com.sun.identity.idm.IdType;
+import com.sun.identity.idm.IdRepoException;
+import com.sun.identity.idm.IdSearchControl;
+import com.sun.identity.idm.IdSearchResults;
+import com.sun.identity.idm.IdUtils;
+import com.sun.identity.shared.debug.Debug;
 import com.sun.identity.sm.RequiredValueValidator;
 
+import org.forgerock.guava.common.collect.ImmutableList;
 import org.forgerock.json.JsonValue;
 import org.forgerock.openam.annotations.sm.Attribute;
-import org.forgerock.openam.auth.node.api.*;
+import org.forgerock.openam.auth.node.api.AbstractDecisionNode;
+import org.forgerock.openam.auth.node.api.Action;
+import org.forgerock.openam.auth.node.api.Node;
+import org.forgerock.openam.auth.node.api.NodeProcessException;
+import org.forgerock.openam.auth.node.api.TreeContext;
 import org.forgerock.openam.core.CoreWrapper;
 import org.forgerock.openam.utils.CrestQuery;
+import org.forgerock.util.i18n.PreferredLocales;
 
 import javax.inject.Inject;
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.TextOutputCallback;
 
+import static javax.security.auth.callback.TextOutputCallback.ERROR;
+import static org.forgerock.openam.auth.node.api.Action.send;
 import static org.forgerock.openam.auth.node.api.SharedStateConstants.REALM;
 import static org.forgerock.openam.auth.node.api.SharedStateConstants.USERNAME;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 
 /**
  * A node that copies a value from a user's profile attributes into a value in their authentication shared state.
+ *
+ * @author chandradhulipala
  */
-@Node.Metadata(outcomeProvider  = SingleOutcomeNode.OutcomeProvider.class,
-               configClass      = ProfileAttributeToStateNode.Config.class)
-public class ProfileAttributeToStateNode extends SingleOutcomeNode {
+@Node.Metadata(outcomeProvider = ProfileAttributeToStateNode.OutcomeProvider.class,
+               configClass = ProfileAttributeToStateNode.Config.class)
+public class ProfileAttributeToStateNode extends AbstractDecisionNode {
 
-    private final Config config;
+    private final static String DEBUG_FILE = "ProfileAttributeToStateNode";
+    protected Debug debug = Debug.getInstance(DEBUG_FILE);
+
+    private final ProfileAttributeToStateNode.Config config;
     private final CoreWrapper coreWrapper;
+
+    private final static String SUCCESS = "success";
+    private final static String FAILURE = "failure";
 
     /**
      * Configuration for the node.
      */
-    public interface Config {
+   public interface Config {
         @Attribute(order = 100, validators = {RequiredValueValidator.class})
         default Map<String, String> keys() { return Collections.emptyMap(); }
 
@@ -79,14 +108,27 @@ public class ProfileAttributeToStateNode extends SingleOutcomeNode {
 
         JsonValue sharedState = context.sharedState.copy();
 
+        if(context.hasCallbacks()) {
+            debug.message("[" + DEBUG_FILE + "]: " + "has callbacks");
+            return goTo(FAILURE).build();
+        }
+
         for (Map.Entry<String, String> entry : config.keys().entrySet()) {
-            Set value;
+            Set value = null;
             String storageLocation = entry.getValue();
 
             try {
                 value = getValueForKeyFromProfile(entry.getKey(), context);
+                if (value == null) {
+                    debug.message("[" + DEBUG_FILE + "]: " + "Invalid input provided" + entry.getKey());
+                    List<Callback> callbacks = new ArrayList<Callback>(1);
+                    String errMsg = "Please enter valid credentials";
+                    TextOutputCallback textCb = new TextOutputCallback(ERROR, errMsg);
+                    callbacks = ImmutableList.of(textCb);
+                    return send(ImmutableList.copyOf(callbacks)).build();
+                }
             } catch (IdRepoException | SSOException e) {
-                throw new NodeProcessException("Error retrieving value from user's profile.");
+                debug.error("[" + DEBUG_FILE + "]: " + "Error retrieving value from user's profile:::::: " + e);
             }
 
             Object selectedValue;
@@ -110,7 +152,7 @@ public class ProfileAttributeToStateNode extends SingleOutcomeNode {
             sharedState.put(storageLocation, selectedValue);
         }
 
-        return goToNext().replaceSharedState(sharedState).build();
+        return goTo(SUCCESS).replaceSharedState(sharedState).build();
     }
 
     private void verifyUsernameAndRealm(TreeContext context) throws NodeProcessException {
@@ -129,7 +171,7 @@ public class ProfileAttributeToStateNode extends SingleOutcomeNode {
         userAttributes.add("mail");
         AMIdentity user = IdUtils.getIdentity(context.sharedState.get(INPUT).asString(), context.sharedState.get(REALM).asString(), userAttributes);
 
-        return user.getAttribute(key);
+        return user != null ? user.getAttribute(key) : null;
     }
 
     private AMIdentity getIdentity(String username, String realm) throws IdRepoException, SSOException {
@@ -151,4 +193,22 @@ public class ProfileAttributeToStateNode extends SingleOutcomeNode {
         SelectFirst,
         SelectAsString
     }
+
+    private Action.ActionBuilder goTo(String outcome) {
+        return Action.goTo(outcome);
+    }
+
+    static final class OutcomeProvider implements org.forgerock.openam.auth.node.api.OutcomeProvider {
+        private static final String BUNDLE = ProfileAttributeToStateNode.class.getName().replace(".", "/");
+
+        @Override
+        public List<Outcome> getOutcomes(PreferredLocales locales, JsonValue nodeAttributes) {
+            ResourceBundle bundle = locales.getBundleInPreferredLocale(BUNDLE, OutcomeProvider.class.getClassLoader());
+            return ImmutableList.of(
+                    new Outcome(SUCCESS, bundle.getString("success")),
+                    new Outcome(FAILURE, bundle.getString("failure")));
+        }
+    }
+
+
 }
